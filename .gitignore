@@ -1,98 +1,151 @@
-# ==========================================
-# MetroHCM - Comprehensive .gitignore
-# (BigTech Professional Standard)
-# ==========================================
+# ###########################################################
+# METRO-HCM - Production-Grade GitIgnore 
+# ###########################################################
 
-# --- Dependencies ---
+# --- DEPENDENCIES ---
 node_modules/
 jspm_packages/
-web_prefix/
 .pnp
 .pnp.js
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnpm-store/
 
-# --- Environment & Secrets (CRITICAL) ---
+# --- SECRETS & ENVIRONMENT (CRITICAL SECURITY) ---
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 *.env
-# Specific secrets seen in Backend
+*.env.json
+secrets.json
 Backend/.env
+Frontend/.env
+# Firebase/Google Credentials
+serviceAccountKey.json
 Backend/src/config/serviceAccountKey.json
-
-# --- Build & Output ---
-# Vite / Frontend
-Frontend/dist/
-Frontend/dist-ssr/
-Frontend/*.tsbuildinfo
-# Backend / General
-dist/
-build/
-bin/
-out/
-.vercel
-.output
-.next
-.nuxt
-
-# --- Logs & Debug ---
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-# Project specific debug files
-Backend/debug_write.txt
-Backend/test_*.js
-Backend/sanity_check*.js
-
-# --- Diagnostic & Coverage ---
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-.pnpm-debug.log*
-coverage/
-.nyc_output
-.eslintcache
-.stylelintcache
-.prettiercache
-
-# --- System & IDE ---
-.DS_Store
-.DS_Store?
-._*
-Thumbs.db
-desktop.ini
-.vscode/
-!.vscode/extensions.json
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# --- Tool Specific ---
-.cache/
-.parcel-cache/
-.turbo/
-.contentlayer/
-bun.lockb
-# Frontend specific
-Frontend/.pnpm-debug.log*
-Frontend/package-lock.json.backup
-
-# --- Security & Credentials ---
 *.pem
 *.key
 *.cert
 *.crt
 *.pfx
 *.p12
-gpg.bak
-secrets.json
 
-# --- OS temporary files ---
+# --- BUILD & DISTRIBUTION ---
+# Frontend (Vite/React)
+Frontend/dist/
+Frontend/dist-ssr/
+Frontend/*.tsbuildinfo
+# Backend / Node General
+dist/
+build/
+bin/
+out/
+Backend/dist/
+# Deployment Artifacts
+.vercel/
+.output/
+.next/
+.nuxt/
+.docusaurus/
+.cache/
+.parcel-cache/
+.next
+
+# --- LOGS & DIAGNOSTICS ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+# Project-Specific Debug/Temp
+Backend/debug_write.txt
+Backend/test_*.js
+Backend/sanity_check*.js
+debug.txt
+
+# --- COVERAGE & CI ---
+coverage/
+.nyc_output/
+junit.xml
+test-results/
+.eslintcache
+.stylelintcache
+.prettiercache
+.terser-cache
+
+# --- OS SPECIFIC ---
+# MacOS
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+# Windows
+Thumbs.db
 ehthumbs.db
-Icon?
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# --- IDE & TOOLS ---
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/code-snippets
+# IntelliJ/WebStorm
+.idea/
+*.iws
+*.iml
+*.ipr
+# Sublime/Atom
+*.sublime-project
+*.sublime-workspace
+.atom/
+# General Editor Files
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.patch
+*.diff
+
+# --- TOOL SPECIFIC ---
+.turbo/
+.ultra/
+.contentlayer/
+.DS_Store
+.npm/
+.yarn-integrity
+.tsbuildinfo
+
+# --- DATABASE / LOCAL STORAGE ---
+*.sqlite
+*.db
+dump.rdb
+# MongoDB Local (if used for testing)
+*.log.mongo
+# Firebase Local Emulator
+.firebase/
+firebase-debug.log*
+.firebaserc
+
+# --- MISC ---
+doc/
+!doc/README.md
+vendor/
+.DS_Store
