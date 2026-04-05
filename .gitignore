@@ -1,15 +1,98 @@
-# Ignore node_modules
+# ==========================================
+# MetroHCM - Comprehensive .gitignore
+# (BigTech Professional Standard)
+# ==========================================
+
+# --- Dependencies ---
 node_modules/
+jspm_packages/
+web_prefix/
+.pnp
+.pnp.js
 
-# Ignore dist directory (thư mục build)
-dist/
-
-# Ignore Docker compose file
-docker-compose.yml
-
-# Ignore environment files containing secrets
+# --- Environment & Secrets (CRITICAL) ---
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+# Specific secrets seen in Backend
 Backend/.env
-
-# Ignore service account key file
 Backend/src/config/serviceAccountKey.json
+
+# --- Build & Output ---
+# Vite / Frontend
+Frontend/dist/
+Frontend/dist-ssr/
+Frontend/*.tsbuildinfo
+# Backend / General
+dist/
+build/
+bin/
+out/
+.vercel
+.output
+.next
+.nuxt
+
+# --- Logs & Debug ---
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+# Project specific debug files
+Backend/debug_write.txt
+Backend/test_*.js
+Backend/sanity_check*.js
+
+# --- Diagnostic & Coverage ---
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+.pnpm-debug.log*
+coverage/
+.nyc_output
+.eslintcache
+.stylelintcache
+.prettiercache
+
+# --- System & IDE ---
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Tool Specific ---
+.cache/
+.parcel-cache/
+.turbo/
+.contentlayer/
+bun.lockb
+# Frontend specific
+Frontend/.pnpm-debug.log*
+Frontend/package-lock.json.backup
+
+# --- Security & Credentials ---
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+gpg.bak
+secrets.json
+
+# --- OS temporary files ---
+ehthumbs.db
+Icon?
