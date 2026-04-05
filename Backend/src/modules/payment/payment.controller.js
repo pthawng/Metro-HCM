@@ -1,6 +1,7 @@
 import * as paymentService from './payment.service.js';
 import catchAsync from '../../shared/utils/catchAsync.js';
 import { sendSuccess, sendCreated } from '../../core/response/response.js';
+import { createOrderSchema, updateStatusSchema } from './payment.validation.js';
 
 /**
  * Payment Controller — Thin layer.
@@ -8,13 +9,20 @@ import { sendSuccess, sendCreated } from '../../core/response/response.js';
 
 export const createPayment = catchAsync(async (req, res) => {
   const userId = req.user.id;
-  const order = await paymentService.createPayment(userId, req.body);
+  
+  // Extract idempotency key from header for Big Tech standard
+  const idempotencyKey = req.headers['x-idempotency-key'] || req.body.idempotencyKey;
+  
+  // Domain Validation
+  const validatedData = createOrderSchema.parse({ ...req.body, idempotencyKey });
+
+  const order = await paymentService.createPayment(userId, validatedData);
   sendCreated(res, order, 'Tạo đơn hàng thành công');
 });
 
 export const updatePaymentStatus = catchAsync(async (req, res) => {
-  const { orderId, paymentStatus } = req.body;
-  const order = await paymentService.updatePaymentStatus(orderId, paymentStatus);
+  const validatedData = updateStatusSchema.parse(req.body);
+  const order = await paymentService.updatePaymentStatus(validatedData.orderId, validatedData.paymentStatus);
   sendSuccess(res, order, { message: 'Cập nhật trạng thái thanh toán thành công!' });
 });
 

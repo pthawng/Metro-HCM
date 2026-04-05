@@ -1,6 +1,10 @@
 import * as paymentRepo from './payment.repo.js';
 import AppError from '../../core/error/AppError.js';
 import QRCode from 'qrcode';
+import mongoose from 'mongoose';
+import { withRetry } from '../../shared/utils/retry.js';
+import logger from '../../core/logger/logger.js';
+import * as Metrics from '../../core/metrics/metrics.js';
 
 /**
  * Helper: Tính ngày hết hạn dựa trên loại vé
@@ -24,39 +28,75 @@ export const getExpiryDate = (ticketType) => {
  */
 
 export const createPayment = async (userId, data) => {
-  const { ticketType, groupSize, ...rest } = data;
-  
-  const payload = {
-    ...rest,
-    userId,
-    ticketType,
-    createdAt: new Date(),
-  };
+  const { ticketType, groupSize, idempotencyKey, ...rest } = data;
 
-  if (['ngay', 'tuan', 'thang'].includes(ticketType)) {
-    payload.expiryDate = getExpiryDate(ticketType);
-  } else if (ticketType === 'luot') {
-    payload.usageCount = 1;
-  } else if (ticketType === 'khu hoi') {
-    payload.usageCount = 2;
-  } else if (ticketType === 'nhom') {
-    payload.groupSize = groupSize;
-    payload.usageCount = 1;
+  // 1. IDEMPOTENCY GUARD (L1 Cache/DB)
+  // Ensure we don't process the same order twice.
+  const existingOrder = await paymentRepo.findByCriteria({ idempotencyKey });
+  if (existingOrder.length > 0) {
+    logger.info(`♻️ [Idempotency HIT] Returning existing order for key: ${idempotencyKey}`);
+    return existingOrder[0];
   }
 
-  return paymentRepo.createOrder(payload);
+  // 2. ATOMIC TRANSACTION (Staff Design: Multi-entity Consistency)
+  const session = await mongoose.startSession();
+  
+  try {
+    const result = await withRetry(async () => {
+      let order = null;
+
+      await session.withTransaction(async () => {
+        const payload = {
+          ...rest,
+          userId,
+          ticketType,
+          idempotencyKey,
+          createdAt: new Date(),
+        };
+
+        if (['ngay', 'tuan', 'thang'].includes(ticketType)) {
+          payload.expiryDate = getExpiryDate(ticketType);
+        } else if (ticketType === 'luot') {
+          payload.usageCount = 1;
+        } else if (ticketType === 'khu hoi') {
+          payload.usageCount = 2;
+        } else if (ticketType === 'nhom') {
+          payload.groupSize = groupSize;
+          payload.usageCount = 1;
+        }
+
+        order = await paymentRepo.createOrder(payload, { session });
+        
+        // --- Business Observability ---
+        Metrics.ticketsSold.inc({ ticket_type: ticketType });
+        logger.info(`✅ [Order Created] ${order.orderId} for ${ticketType}`);
+      });
+
+      return order;
+    });
+
+    return result;
+  } catch (err) {
+    logger.error('💥 [Transaction FAILED] Order creation failed:', { error: err.message });
+    throw err;
+  } finally {
+    session.endSession();
+  }
 };
 
 export const updatePaymentStatus = async (orderId, paymentStatus) => {
-  const order = await paymentRepo.findByOrderId(orderId);
-  if (!order) throw new AppError('Đơn hàng không tồn tại!', 404);
+  return await withRetry(async () => {
+    const order = await paymentRepo.findByOrderId(orderId);
+    if (!order) throw new AppError('Đơn hàng không tồn tại!', 404);
 
-  if (order.paymentStatus === paymentStatus) {
-    throw new AppError('Trạng thái thanh toán đã được cập nhật trước đó!', 400);
-  }
+    if (order.paymentStatus === paymentStatus) {
+      logger.info(`ℹ️ [Payment Status] No change for order ${orderId}`);
+      return order;
+    }
 
-  order.paymentStatus = paymentStatus;
-  return paymentRepo.saveOrder(order);
+    order.paymentStatus = paymentStatus;
+    return await paymentRepo.saveOrder(order);
+  });
 };
 
 export const getPaymentByOrderId = async (orderId) => {

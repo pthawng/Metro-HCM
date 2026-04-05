@@ -60,6 +60,12 @@ const OrderSchema = new mongoose.Schema({
   qrCode: {
     type: String,
   },
+  idempotencyKey: {
+    type: String,
+    unique: true,
+    sparse: true, // Only for new orders that require deduplication
+    index: true,
+  },
 }, { timestamps: true });
 
 const Order = mongoose.models.Order || mongoose.model('Order', OrderSchema);

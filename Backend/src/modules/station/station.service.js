@@ -1,5 +1,6 @@
 import * as stationRepo from './station.repo.js';
 import AppError from '../../core/error/AppError.js';
+import { invalidateGraph } from '../transit/transit.service.js';
 
 /**
  * Station Service — Business Logic for Station module.
@@ -20,12 +21,14 @@ export const createStation = (data) =>
 export const updateStation = async (id, data) => {
   const station = await stationRepo.updateById(id, data);
   if (!station) throw new AppError('Ga không tồn tại', 404);
+  invalidateGraph();
   return station;
 };
 
 export const deleteStation = async (id) => {
   const station = await stationRepo.deleteById(id);
   if (!station) throw new AppError('Ga không tồn tại', 404);
+  invalidateGraph();
   return station;
 };
 

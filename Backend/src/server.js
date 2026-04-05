@@ -13,7 +13,12 @@ import logger from './core/logger/logger.js';
 import connectDB from './config/db.js';
 import errorHandler from './core/error/errorHandler.js';
 import routes from './routes/index.js';
-import './config/passportConfig.js'; // Ensure passport is configured
+import './config/passportConfig.js'; 
+
+import { initRedis } from './core/cache/redis.js';
+import { initMetadata } from './models/systemMetadata.model.js';
+import * as Metrics from './core/metrics/metrics.js';
+import als from './core/logger/als.js';
 
 const app = express();
 
@@ -22,17 +27,50 @@ const app = express();
  */
 app.use(helmet()); 
 
-// Inject Request ID for Traceability
+// Inject Request ID for Traceability (Staff-level Distributed Tracing)
 app.use((req, res, next) => {
-  req.id = crypto.randomUUID();
-  res.setHeader('X-Request-Id', req.id);
-  next();
+  const requestId = crypto.randomUUID();
+  res.setHeader('X-Request-Id', requestId);
+  
+  // Implicitly propagate requestId through the entire execution context
+  als.run(requestId, () => {
+    next();
+  });
 });
 
 app.use(compression()); 
 app.use(express.json({ limit: '10kb' })); 
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(cookieParser());
+
+// 🔍 Metrics Middleware (Staff-level Observability)
+// Collects duration histograms for all API requests
+app.use((req, res, next) => {
+  const start = process.hrtime();
+  res.on('finish', () => {
+    const duration = process.hrtime(start);
+    const seconds = duration[0] + duration[1] / 1e9;
+    Metrics.httpRequestDuration.observe(
+      { 
+        method: req.method, 
+        route: req.route ? req.route.path : req.originalUrl, 
+        status_code: res.statusCode 
+      },
+      seconds
+    );
+  });
+  next();
+});
+
+// Prometheus Scrape Endpoint - Internal Use
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', Metrics.getContentType());
+    res.end(await Metrics.getMetrics());
+  } catch (err) {
+    res.status(500).end(err);
+  }
+});
 
 // CORS Configuration
 app.use(
@@ -117,6 +155,8 @@ app.use(errorHandler);
 const startServer = async () => {
   try {
     await connectDB();
+    await initMetadata();
+    await initRedis();
     
     if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
       const PORT = config.port || 5000;

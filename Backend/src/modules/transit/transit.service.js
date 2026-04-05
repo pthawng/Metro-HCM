@@ -1,6 +1,69 @@
 import * as transitRepo from './transit.repo.js';
 import AppError from '../../core/error/AppError.js';
 import { stationOrder, fareMatrix } from '../../shared/utils/fare.js';
+import SystemMetadata from '../../models/systemMetadata.model.js';
+import * as CacheService from '../../core/cache/CacheService.js';
+import logger from '../../core/logger/logger.js';
+import * as Metrics from '../../core/metrics/metrics.js';
+
+// ============================================================
+// STATE MANAGEMENT (SINGLETON)
+// ============================================================
+
+let cachedGraph = null;
+let lastVersion = 0;
+
+/**
+ * Fetch the global graph version from Metadata.
+ * (Staff-level optimization: Versioned cache invalidation)
+ */
+const getGraphVersion = async () => {
+    try {
+        const metadata = await SystemMetadata.findOne({ key: 'graph_version' });
+        return metadata ? metadata.value : 1;
+    } catch (err) {
+        logger.error('❌ Error fetching graph version:', err);
+        return 1;
+    }
+};
+
+/**
+ * Increment the global graph version in DB. 
+ * This effectively invalidates all existing route caches across all nodes.
+ */
+export const invalidateGraph = async () => {
+    try {
+        const metadata = await SystemMetadata.findOneAndUpdate(
+            { key: 'graph_version' },
+            { $inc: { value: 1 } },
+            { new: true, upsert: true }
+        );
+        cachedGraph = null; // Clear local L1 graph
+        CacheService.clearL1(); // Clear local L1 results
+        logger.info(`🔄 Graph Version Incremented to v${metadata.value}`);
+        return metadata.value;
+    } catch (err) {
+        logger.error('💥 Failed to increment graph version:', err);
+    }
+};
+
+/**
+ * Get the current operational transit graph.
+ * Uses L1 in-memory caching synchronized with global version.
+ */
+const getGraph = async () => {
+    const currentVersion = await getGraphVersion();
+    
+    // If local graph is stale or missing, rebuild it
+    if (!cachedGraph || lastVersion !== currentVersion) {
+        logger.info(`🏗️ Rebuilding Graph L1 Cache (v${currentVersion})`);
+        const operationalLines = await transitRepo.findOperationalLines();
+        cachedGraph = buildStationGraph(operationalLines);
+        lastVersion = currentVersion;
+    }
+    
+    return cachedGraph;
+};
 
 // ============================================================
 // GRAPH BUILDER
@@ -48,35 +111,56 @@ export const buildStationGraph = (lines) => {
 // ============================================================
 
 /**
- * Tìm đường đi ngắn nhất bằng BFS.
+ * Tìm đường đi ngắn nhất bằng thuật toán Dijkstra (Hỗ trợ trọng số thời gian).
  */
 export const findRoute = (startId, endId, graph) => {
   if (startId === endId) return { path: [startId], duration: 0 };
   if (!graph[startId] || !graph[endId]) return null;
 
-  const queue = [{ id: startId, path: [startId], duration: 0 }];
-  const visited = new Set();
+  const distances = {};
+  const parents = {};
+  const pq = []; // Simple Priority Queue implementation for small metro graphs
 
-  while (queue.length > 0) {
-    const { id, path, duration } = queue.shift();
+  // Initialize
+  Object.keys(graph).forEach((nodeId) => {
+    distances[nodeId] = Infinity;
+  });
 
-    if (id === endId) return { path, duration };
-    if (visited.has(id)) continue;
-    visited.add(id);
+  distances[startId] = 0;
+  pq.push({ id: startId, dist: 0 });
 
-    const neighbors = graph[id]?.neighbors || [];
+  while (pq.length > 0) {
+    // Sort by distance to simulate Priority Queue (Small N)
+    pq.sort((a, b) => a.dist - b.dist);
+    const { id: u, dist: d } = pq.shift();
+
+    if (d > distances[u]) continue;
+    if (u === endId) break;
+
+    const neighbors = graph[u]?.neighbors || [];
     for (const neighbor of neighbors) {
-      if (!visited.has(neighbor.id)) {
-        queue.push({
-          id: neighbor.id,
-          path: [...path, neighbor.id],
-          duration: duration + neighbor.time,
-        });
+      const v = neighbor.id;
+      const weight = neighbor.time || 2; // Default 2 mins if unspecified
+
+      if (distances[u] + weight < distances[v]) {
+        distances[v] = distances[u] + weight;
+        parents[v] = u;
+        pq.push({ id: v, dist: distances[v] });
       }
     }
   }
 
-  return null;
+  if (distances[endId] === Infinity) return null;
+
+  // Reconstruct path
+  const path = [];
+  let current = endId;
+  while (current) {
+    path.unshift(current);
+    current = parents[current];
+  }
+
+  return { path, duration: distances[endId] };
 };
 
 // ============================================================
@@ -141,6 +225,7 @@ export const createLine = async (data) => {
   });
 
   await transitRepo.addLineToStations(stations, newLine._id);
+  invalidateGraph();
   return newLine;
 };
 
@@ -161,7 +246,9 @@ export const updateLine = async (id, data) => {
     await transitRepo.addLineToStations(data.stations, id);
   }
 
-  return transitRepo.updateLineById(id, updatePayload);
+  const updated = await transitRepo.updateLineById(id, updatePayload);
+  invalidateGraph();
+  return updated;
 };
 
 export const deleteLine = async (id) => {
@@ -171,6 +258,7 @@ export const deleteLine = async (id) => {
   const stationIds = existing.stations.map((s) => s.station._id || s.station);
   await transitRepo.removeLineFromStations(stationIds, id);
   await transitRepo.deleteLineById(id);
+  invalidateGraph();
 };
 
 export const searchRoutes = async ({ origin, destination }) => {
@@ -193,10 +281,21 @@ export const searchRoutes = async ({ origin, destination }) => {
     throw new AppError('Ga đích hiện đang không hoạt động', 400);
   }
 
-  const operationalLines = await transitRepo.findOperationalLines();
-  const graph = buildStationGraph(operationalLines);
+  // Versioned Caching (Staff Design: L1/L2 Hierarchy)
+  const version = await getGraphVersion();
+  const cacheKey = `metro:v${version}:route:${origin}:${destination}`;
+  
+  const cachedResult = await CacheService.get(cacheKey);
+  if (cachedResult) return cachedResult;
 
+  const graph = await getGraph();
+
+  const searchStart = process.hrtime();
   const result = findRoute(origin, destination, graph);
+  const searchDuration = process.hrtime(searchStart);
+  const seconds = searchDuration[0] + searchDuration[1] / 1e9;
+  Metrics.transitRouteDuration.observe(seconds);
+
   if (!result) {
     throw new AppError('Không tìm thấy đường đi giữa hai ga', 404);
   }
@@ -208,11 +307,17 @@ export const searchRoutes = async ({ origin, destination }) => {
 
   const fare = calculateFare(sortedStations);
 
-  return {
+  const finalResponse = {
     path: result.path,
     stations: sortedStations,
     fare,
     duration: result.duration,
     stationCount: sortedStations.length,
+    _v: version // Signal to client which version was used
   };
+
+  // Cache the result in L1/L2 (3 hours TTL for route results)
+  await CacheService.set(cacheKey, finalResponse, 10800);
+
+  return finalResponse;
 };

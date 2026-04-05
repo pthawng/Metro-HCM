@@ -1,6 +1,7 @@
 import winston from 'winston';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import als from './als.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,8 +13,10 @@ const devFormat = combine(
   colorize({ all: true }),
   timestamp({ format: 'HH:mm:ss' }),
   printf(({ level, message, timestamp, ...meta }) => {
+    const requestId = als.getStore();
+    const trace = requestId ? ` [${requestId.substring(0, 8)}...]` : '';
     const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
-    return `${timestamp} [${level}]: ${message}${metaStr}`;
+    return `${timestamp} [${level}]${trace}: ${message}${metaStr}`;
   })
 );
 
